@@ -320,19 +320,23 @@ st.plotly_chart(
 
 st.markdown("## 3. Opportunity Gap & Ecosystem Network")
 
+# =========================
+# AGGREGASI KECAMATAN (UNTUK CHOROPLETH)
+# =========================
+
 kec = df.groupby("kecamatan").agg({
-    "demand_university":"sum",
-    "demand_school":"sum",
-    "demand_office":"sum",
-    "total_competitor":"sum",
-    "lat_centroid":"mean",
-    "lng_centroid":"mean"
+    "demand_university": "sum",
+    "demand_school": "sum",
+    "demand_office": "sum",
+    "total_competitor": "sum",
+    "lat_centroid": "mean",
+    "lng_centroid": "mean"
 }).reset_index()
 
 kec["demand_score"] = (
-    kec["demand_university"]*3 +
+    kec["demand_university"] * 3 +
     kec["demand_school"] +
-    kec["demand_office"]*2
+    kec["demand_office"] * 2
 )
 
 kec["gap_score"] = (
@@ -341,7 +345,7 @@ kec["gap_score"] = (
 )
 
 # =========================
-# MAP
+# CHOROPLETH MAP (TETAP)
 # =========================
 
 fig_map = px.choropleth_mapbox(
@@ -358,7 +362,7 @@ fig_map = px.choropleth_mapbox(
 )
 
 fig_map.update_layout(
-    margin=dict(r=0,t=0,l=0,b=0),
+    margin=dict(r=0, t=0, l=0, b=0),
     height=600
 )
 
@@ -367,27 +371,152 @@ st.plotly_chart(
     use_container_width=True
 )
 
+# =========================================================
+# OPPORTUNITY GAP RANKING FILTER
+# =========================================================
+
+st.markdown("### Strategic Opportunity Ranking")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    opp_level = st.selectbox(
+        "Spatial Level (Opportunity)",
+        ["kecamatan", "kelurahan", "nama_jalan"]
+    )
+
+with col2:
+    opp_usaha = st.selectbox(
+        "Jenis Usaha Opportunity",
+        ["all"] + usaha_list
+    )
+
+with col3:
+    opp_top_n = st.slider(
+        "Top Opportunity Areas",
+        5, 20, 10
+    )
+
+# =========================
+# HITUNG DEMAND SCORE
+# =========================
+
+group_cols = [
+    "demand_university",
+    "demand_school",
+    "demand_office"
+]
+
+agg_dict = {col: "sum" for col in group_cols}
+
+if opp_usaha == "all":
+    agg_dict["total_competitor"] = "sum"
+else:
+    agg_dict[f"competitor_{opp_usaha}"] = "sum"
+
+opp_df = (
+    df.groupby(opp_level)
+    .agg(agg_dict)
+    .reset_index()
+)
+
+opp_df["demand_score"] = (
+    opp_df["demand_university"] * 3 +
+    opp_df["demand_school"] +
+    opp_df["demand_office"] * 2
+)
+
+# =========================
+# GAP SCORE
+# =========================
+
+if opp_usaha == "all":
+    opp_df["competitor_score"] = opp_df["total_competitor"]
+else:
+    opp_df["competitor_score"] = opp_df[f"competitor_{opp_usaha}"]
+
+opp_df["gap_score"] = (
+    opp_df["demand_score"] -
+    opp_df["competitor_score"]
+)
+
+# SORT DESCENDING
+opp_rank = (
+    opp_df.sort_values(
+        "gap_score",
+        ascending=False
+    )
+    .head(opp_top_n)
+)
+
+# =========================
+# BARPLOT
+# =========================
+
+# Urutkan dari gap tertinggi ke terendah
+opp_rank = (
+    opp_df.sort_values(
+        "gap_score",
+        ascending=False
+    )
+    .head(opp_top_n)
+)
+
+fig_opp = px.bar(
+    opp_rank,
+    x="gap_score",
+    y=opp_level,
+    orientation="h",
+    color="gap_score",
+    color_continuous_scale="Greens"
+)
+
+# Samakan style dengan section lain:
+# - Bar dari kiri ke kanan
+# - Nilai tertinggi di atas
+fig_opp.update_layout(
+    height=550,
+    yaxis=dict(categoryorder="total ascending")
+)
+
+st.plotly_chart(
+    fig_opp,
+    use_container_width=True
+)
+
+# =========================
+# INSIGHT BOX
+# =========================
+
+best_area = opp_rank.iloc[0][opp_level]
+best_gap = opp_rank.iloc[0]["gap_score"]
+
+st.info(f"""
+🎯 Opportunity Insight:
+
+**{best_area}** memiliki opportunity gap tertinggi
+untuk kategori **{opp_usaha}**.
+
+Gap Score: {best_gap:.2f}
+
+→ Demand tinggi  
+→ Kompetitor relatif rendah  
+→ Potensi ekspansi bisnis besar
+""")
+
 # =========================
 # TABLE
 # =========================
 
-st.markdown("### Top Opportunity Areas")
-
-table_df = (
-    kec.sort_values(
-        "gap_score",
-        ascending=False
-    )
-    .head(10)
-)
+st.markdown("### Detailed Opportunity Analysis")
 
 st.dataframe(
-    table_df[
+    opp_rank[
         [
-            "kecamatan",
-            "gap_score",
+            opp_level,
             "demand_score",
-            "total_competitor"
+            "competitor_score",
+            "gap_score"
         ]
     ],
     use_container_width=True
@@ -400,9 +529,7 @@ st.dataframe(
 st.markdown("### Ecosystem Network Graph")
 
 binary = pd.DataFrame({
-    u: (
-        df[f"competitor_{u}"] > 0
-    ).astype(int)
+    u: (df[f"competitor_{u}"] > 0).astype(int)
     for u in usaha_list
 })
 
@@ -460,8 +587,9 @@ for node in G.nodes():
     node_x.append(x)
     node_y.append(y)
     text.append(node)
+
     size.append(
-        G.degree[node]*7 + 12
+        G.degree[node] * 7 + 12
     )
 
 node_trace = go.Scatter(
@@ -498,7 +626,7 @@ st.plotly_chart(
 )
 
 # =========================================================
-# NETWORK TABLE
+# TOP NETWORK TABLE
 # =========================================================
 
 top_edges = sorted(
